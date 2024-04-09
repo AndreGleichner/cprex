@@ -16,6 +16,8 @@ int main()
 
     f.PrepareSession("ipify", "https://api64.ipify.org");
 
+    // https://www.httpbin.org/
+
     // https://httpstat.us/
     // https://httpstat.us/200
     // https://httpstat.us/Random/200,201,500-504
