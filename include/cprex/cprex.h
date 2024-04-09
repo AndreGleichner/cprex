@@ -4,7 +4,8 @@
 #include <cmath>
 #include <variant>
 
-#include <cpr/cpr.h>
+#include <cpr/cpr.h> // https://github.com/libcpr/cpr
+#include "proxy.h"   // https://github.com/libproxy/libproxy
 
 namespace cprex
 {
@@ -80,14 +81,16 @@ public:
             Entry();
             ~Entry();
 
-            std::string     name;
-            CURLSH*         share;
-            std::string     baseUrl;
-            cpr::Header     header;
-            cpr::Parameters parameters;
-            RetryPolicy     retryPolicy;
+            std::string              name;
+            CURLSH*                  share;
+            std::string              baseUrl;
+            cpr::Header              header;
+            cpr::Parameters          parameters;
+            RetryPolicy              retryPolicy;
+            std::vector<std::string> proxies;
         };
         static std::map<std::string, Entry> _namedSessionsData;
+        static pxProxyFactory*              _proxyFactory;
 
     public:
         static Session CreateSession(const std::string& name);

@@ -66,6 +66,7 @@ const Session::BackofPolicy Session::DefaultExponentialBackofPolicy = [](int att
 const Session::RetryPolicy Session::DefaultRetryPolicy {5, DefaultExponentialBackofPolicy};
 
 std::map<std::string, Session::Factory::Entry> Session::Factory::_namedSessionsData;
+pxProxyFactory*                                Session::Factory::_proxyFactory = nullptr;
 
 Session::Factory::Entry::Entry()
 {
@@ -96,6 +97,25 @@ Session Session::Factory::CreateSession(const std::string& name)
     session.SetParameters(data.parameters);
     session.SetRetryPolicy(data.retryPolicy);
 
+    if (!data.proxies.empty())
+    {
+        std::string proxy;
+        if (data.proxies.size() == 1)
+        {
+            proxy = data.proxies[0];
+        }
+        else
+        {
+            // TODO maybe add config option to always only use the 1st proxy for better connection pooling
+            srand((unsigned)time(nullptr));
+            int i = (rand() % (int)data.proxies.size());
+            proxy = data.proxies[i];
+        }
+        const std::string protocol = proxy.substr(0, proxy.find(':'));
+        // TODO strip optional authentication => SetProxyAuth()
+        session.SetProxies({{protocol, proxy}});
+    }
+
     CURL* curl = session.GetCurlHolder()->handle;
     curl_easy_setopt(curl, CURLOPT_SHARE, data.share);
 
@@ -123,6 +143,28 @@ void Session::Factory::PrepareSession(const std::string& name, const std::string
     entry.header      = header;
     entry.parameters  = parameters;
     entry.retryPolicy = retryPolicy;
+
+    // TODO lock to allow multithread access
+    if (!_proxyFactory)
+        _proxyFactory = px_proxy_factory_new();
+
+    // TODO This is blocking thus maybe call in another thread and wait on the first CreateSession or first actual
+    // request.
+    auto   proxies = px_proxy_factory_get_proxies(_proxyFactory, baseUrl.c_str());
+    char** proxy   = proxies;
+    while (*proxy)
+    {
+        // Usually one of:
+        // direct://
+        // http://[username:password@]proxy:port
+        if (IsAbsoluteUrl(*proxy))
+        {
+            entry.proxies.push_back(*proxy);
+        }
+        ++proxy;
+    }
+
+    px_proxy_factory_free_proxies(proxies);
 
     _namedSessionsData[name] = entry;
 }

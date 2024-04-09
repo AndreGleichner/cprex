@@ -1,6 +1,6 @@
 {
   "dependencies": [
-    "color-console",
-    "cpr"
+    "cpr",
+    "libproxy"
   ]
 }
