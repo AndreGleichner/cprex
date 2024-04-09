@@ -99,21 +99,38 @@ Session Session::Factory::CreateSession(const std::string& name)
 
     if (!data.proxies.empty())
     {
-        std::string proxy;
-        if (data.proxies.size() == 1)
+        // find a living proxy
+        std::string              proxy;
+        std::vector<std::string> proxies {data.proxies};
+        while (!proxies.empty())
         {
-            proxy = data.proxies[0];
+            size_t index = 0;
+            if (proxies.size() > 1)
+            {
+                // TODO maybe add config option to always only use the 1st proxy for better connection pooling
+                srand((unsigned)time(nullptr));
+                index = (rand() % proxies.size());
+            }
+            proxy = proxies[index];
+            proxies.erase(proxies.begin() + index);
+
+            auto r = cpr::Get(cpr::Url(proxy), cpr::Timeout(1s));
+            if (StatusCode::Succeeded(r.status_code))
+            {
+                break;
+            }
+            else
+            {
+                proxy.clear();
+            }
         }
-        else
+
+        if (!proxy.empty())
         {
-            // TODO maybe add config option to always only use the 1st proxy for better connection pooling
-            srand((unsigned)time(nullptr));
-            int i = (rand() % (int)data.proxies.size());
-            proxy = data.proxies[i];
+            const std::string protocol = proxy.substr(0, proxy.find(':'));
+            // TODO strip optional authentication = > SetProxyAuth()
+            session.SetProxies({{protocol, proxy}});
         }
-        const std::string protocol = proxy.substr(0, proxy.find(':'));
-        // TODO strip optional authentication => SetProxyAuth()
-        session.SetProxies({{protocol, proxy}});
     }
 
     CURL* curl = session.GetCurlHolder()->handle;
@@ -163,6 +180,10 @@ void Session::Factory::PrepareSession(const std::string& name, const std::string
         }
         ++proxy;
     }
+
+    // To play with public proxies we may inject one from this list:
+    // https://www.proxynova.com/proxy-server-list/country-de
+    // entry.proxies.push_back("http://116.203.28.43:80");
 
     px_proxy_factory_free_proxies(proxies);
 
