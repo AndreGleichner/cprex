@@ -131,6 +131,8 @@ private:
     cpr::Response makeRequestEx();
     cpr::Response makeDownloadRequestEx();
 
+    std::chrono::milliseconds ParseRetryAfterHeader();
+
 #ifdef _WIN32
 #    pragma region Option setter
 #endif

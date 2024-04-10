@@ -241,9 +241,10 @@ CURLcode Session::makeRepeatedRequestEx()
             break;
         }
 
-        auto waitMilliSeconds = _retryPolicy.backofPolicy(attempt++);
-
-        // TODO maybe eval the response header Retry-After
+        // Check whether there's a Retry-After header
+        auto waitMilliSeconds = ParseRetryAfterHeader();
+        if (waitMilliSeconds == 0ms)
+            waitMilliSeconds = _retryPolicy.backofPolicy(attempt++);
 
         std::cout << "    Failed (" << attempt << ") with " << status_code << ", retry after " << waitMilliSeconds
                   << " ... " << std::endl;
@@ -252,6 +253,55 @@ CURLcode Session::makeRepeatedRequestEx()
     };
 
     return curl_error;
+}
+
+static std::time_t HttpDate(const char* v)
+{
+    std::tm            tm = {};
+    std::istringstream ss(v);
+    ss >> std::get_time(&tm, "%a, %d %b %Y %H:%M:%S GMT");
+
+    if (ss.fail())
+        return -1;
+
+    std::time_t date = std::mktime(&tm);
+    if (date == -1)
+        return -1;
+
+    return date;
+}
+
+std::chrono::milliseconds Session::ParseRetryAfterHeader()
+{
+    CURL* curl = GetCurlHolder()->handle;
+
+    curl_header* header      = nullptr;
+    long long    retry_after = 0;
+    if (CURLHE_OK == curl_easy_header(curl, "Retry-After", 0, CURLH_HEADER, -1, &header))
+    {
+        // Could be an integer value (Seconds) or a HTTP-date
+        // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Retry-After
+
+        try
+        {
+            retry_after = std::stoll(header->value);
+        }
+        catch (const std::exception&)
+        {
+        }
+        if (!retry_after)
+        {
+            auto date = HttpDate(header->value);
+            if (-1 != date)
+                // convert date to number of seconds into the future
+                retry_after = date - time(NULL);
+        }
+    }
+
+    if (retry_after)
+        return retry_after * 1000ms;
+    else
+        return 0ms;
 }
 
 void Session::prepare()
