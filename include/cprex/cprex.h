@@ -99,7 +99,7 @@ public:
         static std::mutex                   _proxyFactoryMtx;
 
     public:
-        static Session CreateSession(const std::string& name);
+        static Session CreateSession(const std::string& name, bool trace = false);
 
         // baseUrl is assumed as an absolute URL as in https://datatracker.ietf.org/doc/html/rfc3986
         static void PrepareSession(const std::string& name, const std::string& baseUrl, const cpr::Header& header = {},
@@ -111,7 +111,18 @@ public:
     };
 
 private:
+    struct DebugData
+    {
+        DebugData()
+        {
+            traceAscii = true;
+        }
+        bool traceAscii;
+    };
     RetryPolicy _retryPolicy;
+    DebugData   _debugData;
+    static int  curl_trace(CURL* handle, curl_infotype type, char* data, size_t size, void* userp);
+    static void dump(const char* text, FILE* stream, unsigned char* ptr, size_t size, bool nohex);
 
     // overwrite cpr::Session::SetUrl() to store the absolute URL
     void SetUrl(const cpr::Url& url)

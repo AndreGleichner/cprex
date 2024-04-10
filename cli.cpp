@@ -25,7 +25,7 @@ int main()
 
     {
         std::cout << "ipify ######################" << std::endl;
-        auto ipify = cprex::Session::Factory::CreateSession("ipify");
+        auto ipify = cprex::Session::Factory::CreateSession("ipify" /*, true*/);
 
         // compile error (intentional), shall have a Path object
         // auto r = ipify.Get();
