@@ -95,6 +95,7 @@ public:
         };
         static std::map<std::string, Entry> _namedSessionsData;
         static pxProxyFactory*              _proxyFactory;
+        static std::mutex                   _proxyFactoryMtx;
 
     public:
         static Session CreateSession(const std::string& name);

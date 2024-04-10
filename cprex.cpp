@@ -66,6 +66,7 @@ const Session::RetryPolicy Session::DefaultRetryPolicy {5, DefaultExponentialBac
 
 std::map<std::string, Session::Factory::Entry> Session::Factory::_namedSessionsData;
 pxProxyFactory*                                Session::Factory::_proxyFactory = nullptr;
+std::mutex                                     Session::Factory::_proxyFactoryMtx;
 
 Session::Factory::Entry::Entry()
 {
@@ -121,8 +122,26 @@ Session Session::Factory::CreateSession(const std::string& name)
 
         if (!proxy.empty())
         {
+            // All this URL "parsing" would be much simpler via boost::URL, but maybe too heavy
             const std::string protocol = data.baseUrl.substr(0, data.baseUrl.find(':'));
-            // TODO strip optional authentication = > SetProxyAuth()
+
+            size_t ampPos = proxy.find('@');
+            if (ampPos != std::string::npos)
+            {
+                size_t schemaPos        = proxy.find("://");
+                auto   proxyWithoutAuth = proxy;
+                proxyWithoutAuth.erase(schemaPos + 3, ampPos - schemaPos - 2);
+                auto   auth       = proxy.substr(schemaPos + 3, ampPos - schemaPos - 3);
+                size_t authColPos = auth.find(':');
+                if (authColPos != std::string::npos)
+                {
+                    auto user = auth.substr(0, authColPos);
+                    auto pass = auth.substr(authColPos + 1);
+                    session.SetProxyAuth(
+                        cpr::ProxyAuthentication {{protocol, cpr::EncodedAuthentication {user, pass}}});
+                }
+            }
+
             session.SetProxies({{protocol, proxy}});
         }
     }
@@ -154,27 +173,29 @@ void Session::Factory::PrepareSession(const std::string& name, const std::string
     entry.parameters  = parameters;
     entry.retryPolicy = retryPolicy;
 
-    // TODO lock to allow multithread access
-    if (!_proxyFactory)
-        _proxyFactory = px_proxy_factory_new();
-
-    // TODO This is blocking thus maybe call in another thread and wait on the first CreateSession or first actual
-    // request.
-    auto   proxies = px_proxy_factory_get_proxies(_proxyFactory, baseUrl.c_str());
-    char** proxy   = proxies;
-    while (*proxy)
     {
-        // Usually one of:
-        // direct://
-        // http://[username:password@]proxy:port
-        if (IsAbsoluteUrl(*proxy))
-        {
-            entry.proxies.push_back(*proxy);
-        }
-        ++proxy;
-    }
+        std::lock_guard<std::mutex> lock(_proxyFactoryMtx);
+        if (!_proxyFactory)
+            _proxyFactory = px_proxy_factory_new();
 
-    px_proxy_factory_free_proxies(proxies);
+        // TODO This is blocking thus maybe call in another thread and wait on the first CreateSession or first actual
+        // request.
+        auto   proxies = px_proxy_factory_get_proxies(_proxyFactory, baseUrl.c_str());
+        char** proxy   = proxies;
+        while (*proxy)
+        {
+            // Usually one of:
+            // direct://
+            // http://[username:password@]proxy:port
+            if (IsAbsoluteUrl(*proxy))
+            {
+                entry.proxies.push_back(*proxy);
+            }
+            ++proxy;
+        }
+
+        px_proxy_factory_free_proxies(proxies);
+    }
 
     _namedSessionsData[name] = entry;
 }
