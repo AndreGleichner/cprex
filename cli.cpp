@@ -12,9 +12,7 @@ void print(cpr::Response r)
 
 int main()
 {
-    cprex::Session::Factory f;
-
-    f.PrepareSession("ipify", "https://api64.ipify.org");
+    cprex::Session::Factory::PrepareSession("ipify", "https://api64.ipify.org");
 
     // https://www.httpbin.org/
 
@@ -22,12 +20,12 @@ int main()
     // https://httpstat.us/200
     // https://httpstat.us/Random/200,201,500-504
 
-    f.PrepareSession("rnd", "https://httpstat.us/Random/200,201,502-504");
-    f.PrepareSession("stat", "https://httpstat.us/");
+    cprex::Session::Factory::PrepareSession("rnd", "https://httpstat.us/Random/200,201,502-504");
+    cprex::Session::Factory::PrepareSession("stat", "https://httpstat.us/");
 
     {
         std::cout << "ipify ######################" << std::endl;
-        auto ipify = f.CreateSession("ipify");
+        auto ipify = cprex::Session::Factory::CreateSession("ipify");
 
         // compile error (intentional), shall have a Path object
         // auto r = ipify.Get();
@@ -49,7 +47,7 @@ int main()
 
     {
         std::cout << "rnd ######################" << std::endl;
-        auto rnd = f.CreateSession("rnd");
+        auto rnd = cprex::Session::Factory::CreateSession("rnd");
         for (int i = 0; i < 10; ++i)
         {
             std::cout << i << ": ";
@@ -60,7 +58,7 @@ int main()
 
     {
         std::cout << "stat ######################" << std::endl;
-        auto stat = f.CreateSession("stat");
+        auto stat = cprex::Session::Factory::CreateSession("stat");
         auto r    = stat.Get(cprex::Path("/200"));
         print(r);
 

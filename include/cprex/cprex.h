@@ -11,6 +11,8 @@ namespace cprex
 {
 static inline bool IsAbsoluteUrl(const std::string& url)
 {
+    // This of course is not a full check but only a pragmatic approach.
+    // It would require a full URL parser like boost::URL.
     return url.starts_with("http:") || url.starts_with("https:");
 }
 
@@ -22,6 +24,8 @@ bool Succeeded(long statusCode);
 bool CanRetry(long statusCode);
 }
 
+// Implementation is identical to cpr::Url and is intended to hold a relative URL,
+// typically only the path part of an URL.
 class Path : public cpr::StringHolder<Path>
 {
 public:
@@ -72,10 +76,10 @@ public:
         _retryPolicy = retryPolicy;
     }
 
-    // https://learn.microsoft.com/en-us/dotnet/architecture/microservices/implement-resilient-applications/use-httpclientfactory-to-implement-resilient-http-requests
-    class Factory
+    class Factory final
     {
-    private:
+        Factory() = delete;
+
         struct Entry
         {
             Entry();
@@ -161,6 +165,7 @@ private:
     template <bool processed_header, typename CurrentType, typename... Ts>
     void set_option_internal(CurrentType&& current_option, Ts&&... ts)
     {
+        // This was in cpr::Session, but seems useless:
         // set_option_internal<processed_header, CurrentType>(std::forward<CurrentType>(current_option));
 
         if (std::is_same<CurrentType, cpr::Header>::value)

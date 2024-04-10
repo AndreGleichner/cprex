@@ -5,7 +5,6 @@ using namespace std::chrono_literals;
 
 namespace cprex
 {
-
 std::string AppendUrls(const std::string& baseUrl, const std::string& otherUrl)
 {
     std::string res;
@@ -134,8 +133,7 @@ Session Session::Factory::CreateSession(const std::string& name)
     return session;
 }
 
-// baseUrl is assumed as an absolute URL as in
-// https://datatracker.ietf.org/doc/html/rfc3986
+// baseUrl is assumed as an absolute URL as in https://datatracker.ietf.org/doc/html/rfc3986
 void Session::Factory::PrepareSession(const std::string& name, const std::string& baseUrl, const cpr::Header& header,
     const cpr::Parameters& parameters, RetryPolicy retryPolicy)
 {
@@ -150,7 +148,7 @@ void Session::Factory::PrepareSession(const std::string& name, const std::string
     else
         entry.baseUrl = baseUrl + '/';
 
-    // TODO maybe resolve here and also maybe perform connectivity tests to e.g. fallback from proxy to direct
+    // TODO maybe resolve here and also maybe perform connectivity tests
 
     entry.header      = header;
     entry.parameters  = parameters;
