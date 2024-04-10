@@ -90,6 +90,7 @@ public:
             std::string              baseUrl;
             cpr::Header              header;
             cpr::Parameters          parameters;
+            cpr::Redirect            redirect;
             RetryPolicy              retryPolicy;
             std::vector<std::string> proxies;
         };
@@ -102,7 +103,8 @@ public:
 
         // baseUrl is assumed as an absolute URL as in https://datatracker.ietf.org/doc/html/rfc3986
         static void PrepareSession(const std::string& name, const std::string& baseUrl, const cpr::Header& header = {},
-            const cpr::Parameters& parameters = {}, RetryPolicy retryPolicy = DefaultRetryPolicy);
+            const cpr::Parameters& parameters = {}, const cpr::Redirect& redirect = {},
+            RetryPolicy retryPolicy = DefaultRetryPolicy);
 
     private:
         static bool IsProxyReachable(const std::string& url);

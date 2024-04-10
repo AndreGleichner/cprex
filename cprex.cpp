@@ -95,6 +95,7 @@ Session Session::Factory::CreateSession(const std::string& name)
     session.SetUrl(data.baseUrl);
     session.SetHeader(data.header);
     session.SetParameters(data.parameters);
+    session.SetRedirect(data.redirect);
     session.SetRetryPolicy(data.retryPolicy);
 
     if (!data.proxies.empty())
@@ -154,7 +155,7 @@ Session Session::Factory::CreateSession(const std::string& name)
 
 // baseUrl is assumed as an absolute URL as in https://datatracker.ietf.org/doc/html/rfc3986
 void Session::Factory::PrepareSession(const std::string& name, const std::string& baseUrl, const cpr::Header& header,
-    const cpr::Parameters& parameters, RetryPolicy retryPolicy)
+    const cpr::Parameters& parameters, const cpr::Redirect& redirect, RetryPolicy retryPolicy)
 {
     if (!IsAbsoluteUrl(baseUrl))
         throw new std::exception("baseUrl shall be absolute (start with http: or https:)");
@@ -171,6 +172,7 @@ void Session::Factory::PrepareSession(const std::string& name, const std::string
 
     entry.header      = header;
     entry.parameters  = parameters;
+    entry.redirect    = redirect;
     entry.retryPolicy = retryPolicy;
 
     {
