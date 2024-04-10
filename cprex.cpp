@@ -99,7 +99,7 @@ Session Session::Factory::CreateSession(const std::string& name)
 
     if (!data.proxies.empty())
     {
-        // find a living proxy
+        // Find a reachable proxy, if there is none we automatically do direct requests.
         std::string              proxy;
         std::vector<std::string> proxies {data.proxies};
         while (!proxies.empty())
@@ -114,20 +114,15 @@ Session Session::Factory::CreateSession(const std::string& name)
             proxy = proxies[index];
             proxies.erase(proxies.begin() + index);
 
-            auto r = cpr::Get(cpr::Url(proxy), cpr::Timeout(1s));
-            if (StatusCode::Succeeded(r.status_code))
-            {
+            if (IsProxyReachable(proxy))
                 break;
-            }
             else
-            {
                 proxy.clear();
-            }
         }
 
         if (!proxy.empty())
         {
-            const std::string protocol = proxy.substr(0, proxy.find(':'));
+            const std::string protocol = data.baseUrl.substr(0, data.baseUrl.find(':'));
             // TODO strip optional authentication = > SetProxyAuth()
             session.SetProxies({{protocol, proxy}});
         }
@@ -181,13 +176,17 @@ void Session::Factory::PrepareSession(const std::string& name, const std::string
         ++proxy;
     }
 
-    // To play with public proxies we may inject one from this list:
-    // https://www.proxynova.com/proxy-server-list/country-de
-    // entry.proxies.push_back("http://116.203.28.43:80");
-
     px_proxy_factory_free_proxies(proxies);
 
     _namedSessionsData[name] = entry;
+}
+
+bool Session::Factory::IsProxyReachable(const std::string& url)
+{
+    auto r = cpr::Head(cpr::Url(url), cpr::Timeout(1s));
+    // if there's any status_code it means the server somehow replied, most probably with 400 Bad Request, as HEAD may
+    // not be supported. Usually when a server isn't reachable we get some r.error
+    return r.status_code != 0;
 }
 
 CURLcode Session::makeRepeatedRequestEx()
