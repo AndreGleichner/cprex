@@ -42,12 +42,15 @@ bool CanRetry(long statusCode)
     // * all 400( >= 400 and < 500) class exceptions (Bad gateway, Not Found, etc.), except RequestTimeout(408)
     // * NotImplemented(501) and HttpVersionNotSupported(505).
 
-    return (statusCode < 400 && statusCode != 304 /*NotModified*/) || statusCode == 408 /*RequestTimeout*/ ||
+    // statusCode=0 means the server has not send a response because e.g. we couldn't resolve, connect, etc
+
+    return statusCode == 0 || (statusCode < 400 && statusCode != 304 /*NotModified*/) ||
+           statusCode == 408 /*RequestTimeout*/ ||
            (statusCode >= 500 && statusCode != 501 /*NotImplemented*/ && statusCode != 505 /*HttpVersionNotSupported*/);
 }
 }
 
-const BackofPolicy DefaultExponentialBackofPolicy = [](int attempt) {
+const BackofPolicy DefaultExponentialBackofPolicy = [](size_t attempt) {
     // TODO add decorrelation jitter:
     // https://github.com/App-vNext/Polly/wiki/Retry-with-jitter
     // https://www.pollydocs.org/strategies/retry
@@ -57,12 +60,12 @@ const BackofPolicy DefaultExponentialBackofPolicy = [](int attempt) {
     if (attempt > 12)
         return std::chrono::milliseconds(10min);
 
-    __int64 milliSeconds = 100 << attempt;
+    size_t milliSeconds = 100 << attempt;
 
     return std::chrono::milliseconds(milliSeconds);
 };
 
-const RetryPolicy DefaultRetryPolicy {5, DefaultExponentialBackofPolicy};
+const RetryPolicy DefaultRetryPolicy {5, 4, DefaultExponentialBackofPolicy};
 
 void Session::EnableTrace()
 {
@@ -166,13 +169,18 @@ CURLcode Session::makeRepeatedRequestEx()
 {
     CURL*    curl = _session.GetCurlHolder()->handle;
     CURLcode curl_error;
-    int      attempt = 0;
+    size_t   attempt           = 0;
+    size_t   nonHttpErrors     = 0;
+    bool     tempProxyDisabled = false;
+    bool     keepProxyDisabled = false;
 
     while (1)
     {
         prepare();
 
         curl_error = curl_easy_perform(curl);
+        if (curl_error != CURLE_OK)
+            ++nonHttpErrors;
 
         long status_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
@@ -180,6 +188,8 @@ CURLcode Session::makeRepeatedRequestEx()
         if (StatusCode::Succeeded(status_code))
         {
             // std::cout << "    Success(" << status_code << "): " << std::endl;
+            if (tempProxyDisabled)
+                keepProxyDisabled = true;
             break;
         }
 
@@ -203,8 +213,22 @@ CURLcode Session::makeRepeatedRequestEx()
         std::cout << "    Failed (" << attempt << ") with " << status_code << ", retry after " << waitMilliSeconds
                   << " ... " << std::endl;
 
+        // In proxied request case if we have enabled a fallback to direct and there were enough attempts w/o any
+        // response from server.
+        if (_retryPolicy.directFallbackThreshold > 0 && nonHttpErrors > _retryPolicy.directFallbackThreshold)
+        {
+            // Temp disable proxy
+            _session.SetProxies({{}});
+            tempProxyDisabled = true;
+        }
+
         std::this_thread::sleep_for(waitMilliSeconds);
     };
+
+    if (tempProxyDisabled && !keepProxyDisabled)
+    {
+        RestoreProxy();
+    }
 
     return curl_error;
 }
@@ -415,6 +439,11 @@ Session Factory::CreateSession(const std::string& name, bool trace)
             }
 
             session._session.SetProxies({{protocol, proxy}});
+            session.StoreProxy(proxy);
+        }
+        else
+        {
+            session._retryPolicy.directFallbackThreshold = 0;
         }
     }
 
@@ -450,6 +479,9 @@ void Factory::PrepareSession(const std::string& name, const std::string& baseUrl
     entry.parameters  = parameters;
     entry.redirect    = redirect;
     entry.retryPolicy = retryPolicy;
+    if (entry.retryPolicy.directFallbackThreshold >= entry.retryPolicy.maxRetries && entry.retryPolicy.maxRetries > 0)
+        entry.retryPolicy.directFallbackThreshold = entry.retryPolicy.maxRetries - 1;
+
 
     {
         std::lock_guard<std::mutex> lock(_proxyFactoryMtx);

@@ -26,11 +26,19 @@ bool CanRetry(long statusCode);
 
 // Do more resilience like in Polly: https://github.com/App-vNext/Polly
 // https://www.pollydocs.org/strategies/retry
-using BackofPolicy = std::function<std::chrono::milliseconds(int attempt)>;
+using BackofPolicy = std::function<std::chrono::milliseconds(size_t attempt)>;
 struct RetryPolicy
 {
     // Set maxRetries=0 to not retry at all and thus do only a single request attempt.
-    int          maxRetries;
+    size_t maxRetries;
+
+    // Number of non HTTP errors after which we continue with a single direct (w/o proxy) connection.
+    // If that succeeds we remove the proxy configuration for the respective session.
+    // Shall be less than to maxRetries.
+    // =0 to never fallback to direct.
+    size_t directFallbackThreshold;
+
+    // AMount of milliseconds to wait after every request attempt.
     BackofPolicy backofPolicy;
 };
 extern const BackofPolicy DefaultExponentialBackofPolicy;
@@ -80,12 +88,28 @@ public:
         _retryPolicy = retryPolicy;
     }
 
+    // During request retries we may try direct even with configured proxy.
+    // There we temp. drop configured proxy but may need to restore later.
+    void StoreProxy(const std::string& proxy)
+    {
+        _proxy = proxy;
+    }
+    void RestoreProxy()
+    {
+        if (!_proxy.empty())
+        {
+            const std::string protocol = _url.str().substr(0, _url.str().find(':'));
+            _session.SetProxies({{protocol, _proxy}});
+        }
+    }
+
     void EnableTrace();
 
 private:
     cpr::Session _session;
     cpr::Url     _url;
     Path         _path;
+    std::string  _proxy;
 
     std::function<void(Session*)>                            _prepper;
     std::function<void(Session*, std::ofstream&)>            _prepperDlStream;

@@ -9,6 +9,7 @@ Tries the following:
 - Can invoke verbs (Get, etc) with relative URLs, otherwise same parameters as cpr
 - Proxy autodiscovery via libproxy
 - proxy connectivity test on session creation
+- during request retries optionally try connects w/o proxy
 
 It provides a class cprex::Session utilizing cpr::Session.
 
@@ -34,7 +35,6 @@ r = stat.Get("/200", cpr::Parameters {{"sleep", "5000"}});
 
 TODOs:
 - maybe resolve IP in PrepareSession() and also maybe perform connectivity tests
-- maybe during request retries try connects w/o proxy
 - Add decorrelation jitter as described here:
     - https://github.com/App-vNext/Polly/wiki/Retry-with-jitter
     - https://www.pollydocs.org/strategies/retry
