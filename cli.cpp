@@ -12,7 +12,7 @@ void print(cpr::Response r)
 
 int main()
 {
-    cprex::Session::Factory::PrepareSession("ipify", "https://api64.ipify.org");
+    cprex::Factory::PrepareSession("ipify", "https://api64.ipify.org");
 
     // https://www.httpbin.org/
 
@@ -20,12 +20,12 @@ int main()
     // https://httpstat.us/200
     // https://httpstat.us/Random/200,201,500-504
 
-    cprex::Session::Factory::PrepareSession("rnd", "https://httpstat.us/Random/200,201,502-504");
-    cprex::Session::Factory::PrepareSession("stat", "https://httpstat.us/");
+    cprex::Factory::PrepareSession("rnd", "https://httpstat.us/Random/200,201,502-504");
+    cprex::Factory::PrepareSession("stat", "https://httpstat.us/");
 
     {
         std::cout << "ipify ######################" << std::endl;
-        auto ipify = cprex::Session::Factory::CreateSession("ipify" /*, true*/);
+        auto ipify = cprex::Factory::CreateSession("ipify" /*, true*/);
 
         // compile error (intentional), shall have a Path object
         // auto r = ipify.Get();
@@ -47,7 +47,7 @@ int main()
 
     {
         std::cout << "rnd ######################" << std::endl;
-        auto rnd = cprex::Session::Factory::CreateSession("rnd");
+        auto rnd = cprex::Factory::CreateSession("rnd");
         for (int i = 0; i < 10; ++i)
         {
             std::cout << i << ": ";
@@ -58,7 +58,7 @@ int main()
 
     {
         std::cout << "stat ######################" << std::endl;
-        auto stat = cprex::Session::Factory::CreateSession("stat");
+        auto stat = cprex::Factory::CreateSession("stat");
         auto r    = stat.Get(cprex::Path("/200"));
         print(r);
 

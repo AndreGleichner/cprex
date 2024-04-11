@@ -24,6 +24,20 @@ bool Succeeded(long statusCode);
 bool CanRetry(long statusCode);
 }
 
+// Do more resilience like in Polly: https://github.com/App-vNext/Polly
+// https://www.pollydocs.org/strategies/retry
+using BackofPolicy = std::function<std::chrono::milliseconds(int attempt)>;
+struct RetryPolicy
+{
+    // Set maxRetries=0 to not retry at all and thus do only a single request attempt.
+    int          maxRetries;
+    BackofPolicy backofPolicy;
+};
+extern const BackofPolicy DefaultExponentialBackofPolicy;
+extern const RetryPolicy  DefaultRetryPolicy;
+
+
+
 // Implementation is identical to cpr::Url and is intended to hold a relative URL,
 // typically only the path part of an URL.
 class Path : public cpr::StringHolder<Path>
@@ -56,59 +70,19 @@ public:
     Path& operator=(const Path& other)   = default;
 };
 
+class Factory;
+
 class Session
 {
-public:
-    // Do more resilience like in Polly: https://github.com/App-vNext/Polly
-    // https://www.pollydocs.org/strategies/retry
-    using BackofPolicy = std::function<std::chrono::milliseconds(int attempt)>;
-    struct RetryPolicy
-    {
-        // Set maxRetries=0 to not retry at all and thus do only a single request attempt.
-        int          maxRetries;
-        BackofPolicy backofPolicy;
-    };
-    static const BackofPolicy DefaultExponentialBackofPolicy;
-    static const RetryPolicy  DefaultRetryPolicy;
+    friend Factory;
 
+public:
     void SetRetryPolicy(RetryPolicy retryPolicy)
     {
         _retryPolicy = retryPolicy;
     }
 
-    class Factory final
-    {
-        Factory() = delete;
-
-        struct Entry
-        {
-            Entry();
-            ~Entry();
-
-            std::string              name;
-            CURLSH*                  share;
-            std::string              baseUrl;
-            cpr::Header              header;
-            cpr::Parameters          parameters;
-            cpr::Redirect            redirect;
-            RetryPolicy              retryPolicy;
-            std::vector<std::string> proxies;
-        };
-        static std::map<std::string, Entry> _namedSessionsData;
-        static pxProxyFactory*              _proxyFactory;
-        static std::mutex                   _proxyFactoryMtx;
-
-    public:
-        static Session CreateSession(const std::string& name, bool trace = false);
-
-        // baseUrl is assumed as an absolute URL as in https://datatracker.ietf.org/doc/html/rfc3986
-        static void PrepareSession(const std::string& name, const std::string& baseUrl, const cpr::Header& header = {},
-            const cpr::Parameters& parameters = {}, const cpr::Redirect& redirect = {},
-            RetryPolicy retryPolicy = DefaultRetryPolicy);
-
-    private:
-        static bool IsProxyReachable(const std::string& url);
-    };
+    void EnableTrace();
 
 private:
     cpr::Session _session;
@@ -431,4 +405,39 @@ public:
 #    pragma endregion
 #endif
 };
+
+class Factory final
+{
+    Factory() = delete;
+
+    struct Entry
+    {
+        Entry();
+        ~Entry();
+
+        std::string              name;
+        CURLSH*                  share;
+        std::string              baseUrl;
+        cpr::Header              header;
+        cpr::Parameters          parameters;
+        cpr::Redirect            redirect;
+        RetryPolicy              retryPolicy;
+        std::vector<std::string> proxies;
+    };
+    static std::map<std::string, Entry> _namedSessionsData;
+    static pxProxyFactory*              _proxyFactory;
+    static std::mutex                   _proxyFactoryMtx;
+
+public:
+    static Session CreateSession(const std::string& name, bool trace = false);
+
+    // baseUrl is assumed as an absolute URL as in https://datatracker.ietf.org/doc/html/rfc3986
+    static void PrepareSession(const std::string& name, const std::string& baseUrl, const cpr::Header& header = {},
+        const cpr::Parameters& parameters = {}, const cpr::Redirect& redirect = {},
+        RetryPolicy retryPolicy = DefaultRetryPolicy);
+
+private:
+    static bool IsProxyReachable(const std::string& url);
+};
+
 }

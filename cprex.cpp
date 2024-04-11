@@ -47,7 +47,7 @@ bool CanRetry(long statusCode)
 }
 }
 
-const Session::BackofPolicy Session::DefaultExponentialBackofPolicy = [](int attempt) {
+const BackofPolicy DefaultExponentialBackofPolicy = [](int attempt) {
     // TODO add decorrelation jitter:
     // https://github.com/App-vNext/Polly/wiki/Retry-with-jitter
     // https://www.pollydocs.org/strategies/retry
@@ -62,25 +62,19 @@ const Session::BackofPolicy Session::DefaultExponentialBackofPolicy = [](int att
     return std::chrono::milliseconds(milliSeconds);
 };
 
-const Session::RetryPolicy Session::DefaultRetryPolicy {5, DefaultExponentialBackofPolicy};
+const RetryPolicy DefaultRetryPolicy {5, DefaultExponentialBackofPolicy};
 
-std::map<std::string, Session::Factory::Entry> Session::Factory::_namedSessionsData;
-pxProxyFactory*                                Session::Factory::_proxyFactory = nullptr;
-std::mutex                                     Session::Factory::_proxyFactoryMtx;
-
-Session::Factory::Entry::Entry()
+void Session::EnableTrace()
 {
-    // https://everything.curl.dev/helpers/sharing.html
-    share = curl_share_init();
-    curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
-    curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
-    curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
-    curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT);
-}
+    CURL* curl = _session.GetCurlHolder()->handle;
 
-Session::Factory::Entry::~Entry()
-{
-    curl_share_cleanup(share);
+    // https://curl.se/libcurl/c/debug.html
+
+    curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, curl_trace);
+    curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &_debugData);
+
+    // the DEBUGFUNCTION has no effect until we enable VERBOSE
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 }
 
 void Session::dump(const char* text, FILE* stream, unsigned char* ptr, size_t size, bool nohex)
@@ -166,144 +160,6 @@ int Session::curl_trace(CURL* handle, curl_infotype type, char* data, size_t siz
 
     dump(text, stderr, (unsigned char*)data, size, config->traceAscii);
     return 0;
-}
-
-Session Session::Factory::CreateSession(const std::string& name, bool trace)
-{
-    auto entry = _namedSessionsData.find(name);
-    if (entry == std::end(_namedSessionsData))
-        throw new std::exception("CreateNamedSession can't find name");
-
-    auto data = entry->second;
-
-    Session session;
-    session.SetUrl(data.baseUrl);
-    session._session.SetHeader(data.header);
-    session._session.SetParameters(data.parameters);
-    session._session.SetRedirect(data.redirect);
-    session.SetRetryPolicy(data.retryPolicy);
-
-    if (!data.proxies.empty())
-    {
-        // Find a reachable proxy, if there is none we automatically do direct requests.
-        std::string              proxy;
-        std::vector<std::string> proxies {data.proxies};
-        while (!proxies.empty())
-        {
-            size_t index = 0;
-            if (proxies.size() > 1)
-            {
-                // TODO maybe add config option to always only use the 1st proxy for better connection pooling
-                srand((unsigned)time(nullptr));
-                index = (rand() % proxies.size());
-            }
-            proxy = proxies[index];
-            proxies.erase(proxies.begin() + index);
-
-            if (IsProxyReachable(proxy))
-                break;
-            else
-                proxy.clear();
-        }
-
-        if (!proxy.empty())
-        {
-            // All this URL "parsing" would be much simpler via boost::URL, but maybe too heavy
-            const std::string protocol = data.baseUrl.substr(0, data.baseUrl.find(':'));
-
-            size_t ampPos = proxy.find('@');
-            if (ampPos != std::string::npos)
-            {
-                size_t schemaPos        = proxy.find("://");
-                auto   proxyWithoutAuth = proxy;
-                proxyWithoutAuth.erase(schemaPos + 3, ampPos - schemaPos - 2);
-                auto   auth       = proxy.substr(schemaPos + 3, ampPos - schemaPos - 3);
-                size_t authColPos = auth.find(':');
-                if (authColPos != std::string::npos)
-                {
-                    auto user = auth.substr(0, authColPos);
-                    auto pass = auth.substr(authColPos + 1);
-                    session._session.SetProxyAuth(
-                        cpr::ProxyAuthentication {{protocol, cpr::EncodedAuthentication {user, pass}}});
-                }
-            }
-
-            session._session.SetProxies({{protocol, proxy}});
-        }
-    }
-
-    CURL* curl = session._session.GetCurlHolder()->handle;
-    curl_easy_setopt(curl, CURLOPT_SHARE, data.share);
-
-    if (trace)
-    {
-        // https://curl.se/libcurl/c/debug.html
-
-        curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, curl_trace);
-        curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &session._debugData);
-
-        // the DEBUGFUNCTION has no effect until we enable VERBOSE
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-    }
-
-    return session;
-}
-
-// baseUrl is assumed as an absolute URL as in https://datatracker.ietf.org/doc/html/rfc3986
-void Session::Factory::PrepareSession(const std::string& name, const std::string& baseUrl, const cpr::Header& header,
-    const cpr::Parameters& parameters, const cpr::Redirect& redirect, RetryPolicy retryPolicy)
-{
-    if (!IsAbsoluteUrl(baseUrl))
-        throw new std::exception("baseUrl shall be absolute (start with http: or https:)");
-
-    Entry entry;
-    entry.name = name;
-
-    if (baseUrl.back() == '/')
-        entry.baseUrl = baseUrl;
-    else
-        entry.baseUrl = baseUrl + '/';
-
-    // TODO maybe resolve here and also maybe perform connectivity tests
-
-    entry.header      = header;
-    entry.parameters  = parameters;
-    entry.redirect    = redirect;
-    entry.retryPolicy = retryPolicy;
-
-    {
-        std::lock_guard<std::mutex> lock(_proxyFactoryMtx);
-        if (!_proxyFactory)
-            _proxyFactory = px_proxy_factory_new();
-
-        // TODO This is blocking thus maybe call in another thread and wait on the first CreateSession or first actual
-        // request.
-        auto   proxies = px_proxy_factory_get_proxies(_proxyFactory, baseUrl.c_str());
-        char** proxy   = proxies;
-        while (*proxy)
-        {
-            // Usually one of:
-            // direct://
-            // http://[username:password@]proxy:port
-            if (IsAbsoluteUrl(*proxy))
-            {
-                entry.proxies.push_back(*proxy);
-            }
-            ++proxy;
-        }
-
-        px_proxy_factory_free_proxies(proxies);
-    }
-
-    _namedSessionsData[name] = entry;
-}
-
-bool Session::Factory::IsProxyReachable(const std::string& url)
-{
-    auto r = cpr::Head(cpr::Url(url), cpr::Timeout(1s));
-    // if there's any status_code it means the server somehow replied, most probably with 400 Bad Request, as HEAD may
-    // not be supported. Usually when a server isn't reachable we get some r.error
-    return r.status_code != 0;
 }
 
 CURLcode Session::makeRepeatedRequestEx()
@@ -433,7 +289,6 @@ cpr::Response Session::makeDownloadRequestEx()
     return _session.CompleteDownload(makeRepeatedRequestEx());
 }
 
-
 void Session::PrepareDelete()
 {
     _session.PrepareDelete();
@@ -477,6 +332,158 @@ void Session::PrepareDownload(std::ofstream& file)
 void Session::PrepareDownload(const cpr::WriteCallback& write)
 {
     _session.PrepareDownload(write);
+}
+
+
+std::map<std::string, Factory::Entry> Factory::_namedSessionsData;
+pxProxyFactory*                       Factory::_proxyFactory = nullptr;
+std::mutex                            Factory::_proxyFactoryMtx;
+
+Factory::Entry::Entry()
+{
+    // https://everything.curl.dev/helpers/sharing.html
+    share = curl_share_init();
+    curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
+    curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+    curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+    curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT);
+}
+
+Factory::Entry::~Entry()
+{
+    curl_share_cleanup(share);
+}
+
+Session Factory::CreateSession(const std::string& name, bool trace)
+{
+    auto entry = _namedSessionsData.find(name);
+    if (entry == std::end(_namedSessionsData))
+        throw new std::exception("CreateNamedSession can't find name");
+
+    auto data = entry->second;
+
+    Session session;
+    session.SetUrl(data.baseUrl);
+    session._session.SetHeader(data.header);
+    session._session.SetParameters(data.parameters);
+    session._session.SetRedirect(data.redirect);
+    session.SetRetryPolicy(data.retryPolicy);
+
+    if (!data.proxies.empty())
+    {
+        // Find a reachable proxy, if there is none we automatically do direct requests.
+        std::string              proxy;
+        std::vector<std::string> proxies {data.proxies};
+        while (!proxies.empty())
+        {
+            size_t index = 0;
+            if (proxies.size() > 1)
+            {
+                // TODO maybe add config option to always only use the 1st proxy for better connection pooling
+                srand((unsigned)time(nullptr));
+                index = (rand() % proxies.size());
+            }
+            proxy = proxies[index];
+            proxies.erase(proxies.begin() + index);
+
+            if (IsProxyReachable(proxy))
+                break;
+            else
+                proxy.clear();
+        }
+
+        if (!proxy.empty())
+        {
+            // All this URL "parsing" would be much simpler via boost::URL, but maybe too heavy
+            const std::string protocol = data.baseUrl.substr(0, data.baseUrl.find(':'));
+
+            size_t ampPos = proxy.find('@');
+            if (ampPos != std::string::npos)
+            {
+                size_t schemaPos        = proxy.find("://");
+                auto   proxyWithoutAuth = proxy;
+                proxyWithoutAuth.erase(schemaPos + 3, ampPos - schemaPos - 2);
+                auto   auth       = proxy.substr(schemaPos + 3, ampPos - schemaPos - 3);
+                size_t authColPos = auth.find(':');
+                if (authColPos != std::string::npos)
+                {
+                    auto user = auth.substr(0, authColPos);
+                    auto pass = auth.substr(authColPos + 1);
+                    session._session.SetProxyAuth(
+                        cpr::ProxyAuthentication {{protocol, cpr::EncodedAuthentication {user, pass}}});
+                }
+            }
+
+            session._session.SetProxies({{protocol, proxy}});
+        }
+    }
+
+    CURL* curl = session._session.GetCurlHolder()->handle;
+    curl_easy_setopt(curl, CURLOPT_SHARE, data.share);
+
+    if (trace)
+    {
+        session.EnableTrace();
+    }
+
+    return session;
+}
+
+// baseUrl is assumed as an absolute URL as in https://datatracker.ietf.org/doc/html/rfc3986
+void Factory::PrepareSession(const std::string& name, const std::string& baseUrl, const cpr::Header& header,
+    const cpr::Parameters& parameters, const cpr::Redirect& redirect, RetryPolicy retryPolicy)
+{
+    if (!IsAbsoluteUrl(baseUrl))
+        throw new std::exception("baseUrl shall be absolute (start with http: or https:)");
+
+    Entry entry;
+    entry.name = name;
+
+    if (baseUrl.back() == '/')
+        entry.baseUrl = baseUrl;
+    else
+        entry.baseUrl = baseUrl + '/';
+
+    // TODO maybe resolve here and also maybe perform connectivity tests
+
+    entry.header      = header;
+    entry.parameters  = parameters;
+    entry.redirect    = redirect;
+    entry.retryPolicy = retryPolicy;
+
+    {
+        std::lock_guard<std::mutex> lock(_proxyFactoryMtx);
+        if (!_proxyFactory)
+            _proxyFactory = px_proxy_factory_new();
+
+        // TODO This is blocking thus maybe call in another thread and wait on the first CreateSession or first actual
+        // request.
+        auto   proxies = px_proxy_factory_get_proxies(_proxyFactory, baseUrl.c_str());
+        char** proxy   = proxies;
+        while (*proxy)
+        {
+            // Usually one of:
+            // direct://
+            // http://[username:password@]proxy:port
+            if (IsAbsoluteUrl(*proxy))
+            {
+                entry.proxies.push_back(*proxy);
+            }
+            ++proxy;
+        }
+
+        px_proxy_factory_free_proxies(proxies);
+    }
+
+    _namedSessionsData[name] = entry;
+}
+
+bool Factory::IsProxyReachable(const std::string& url)
+{
+    auto r = cpr::Head(cpr::Url(url), cpr::Timeout(1s));
+    // if there's any status_code it means the server somehow replied, most probably with 400 Bad Request, as HEAD may
+    // not be supported. Usually when a server isn't reachable we get some r.error
+    return r.status_code != 0;
 }
 
 }
