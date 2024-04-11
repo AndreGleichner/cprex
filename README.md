@@ -3,26 +3,27 @@
 See https://github.com/libcpr/cpr
 
 Tries the following:
-- Factory to store named sets of standard Session configurations (baseURL, Header, Parameters)
+- Factory to store named sets of standard Session configurations (baseURL, Header, Parameters, Redirects, HTTP proxies)
 - All Session objects created share DNS, connection, SSL and cookie cache
-- Session are configured with a retry policy with backof
-- Can invoke verbs (Get, etc) with relative URLs
+- Sessions are configured with a retry policy with backof
+- Can invoke verbs (Get, etc) with relative URLs, otherwise same parameters as cpr
+- Proxy autodiscovery via libproxy
+- proxy connectivity test on session creation
 
-It provides a class cprex::Session derived from cpr::Session.
+It provides a class cprex::Session utilizing cpr::Session.
 
 No MultiPerform yet.
 
 Basic use:
 
 ```cpp
-cprex::Session::Factory f;
-f.PrepareSession("ipify", "https://api64.ipify.org");
-f.PrepareSession("stat", "https://httpstat.us/");
+cprex::Factory::PrepareSession("ipify", "https://api64.ipify.org");
+cprex::Factory::PrepareSession("stat", "https://httpstat.us/");
 ...
-auto ipify = f.CreateSession("ipify");
+auto ipify = cprex::Factory::CreateSession("ipify");
 auto r = ipify.Get("/");
 ...
-auto stat = f.CreateSession("stat");
+auto stat = cprex::Factory::CreateSession("stat");
 r = stat.Get("/200");
 ```
 
@@ -32,8 +33,8 @@ r = stat.Get("/200", cpr::Parameters {{"sleep", "5000"}});
 ```
 
 TODOs:
-- maybe eval the response header Retry-After in request retries
-- maybe resolve IP in PrepareSession() and also maybe perform connectivity tests to e.g. fallback from proxy to direct
+- maybe resolve IP in PrepareSession() and also maybe perform connectivity tests
+- maybe during request retries try connects w/o proxy
 - Add decorrelation jitter as described here:
     - https://github.com/App-vNext/Polly/wiki/Retry-with-jitter
     - https://www.pollydocs.org/strategies/retry

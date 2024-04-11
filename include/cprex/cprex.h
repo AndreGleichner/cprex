@@ -36,8 +36,6 @@ struct RetryPolicy
 extern const BackofPolicy DefaultExponentialBackofPolicy;
 extern const RetryPolicy  DefaultRetryPolicy;
 
-
-
 // Implementation is identical to cpr::Url and is intended to hold a relative URL,
 // typically only the path part of an URL.
 class Path : public cpr::StringHolder<Path>
