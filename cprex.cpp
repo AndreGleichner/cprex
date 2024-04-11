@@ -178,9 +178,9 @@ Session Session::Factory::CreateSession(const std::string& name, bool trace)
 
     Session session;
     session.SetUrl(data.baseUrl);
-    session.SetHeader(data.header);
-    session.SetParameters(data.parameters);
-    session.SetRedirect(data.redirect);
+    session._session.SetHeader(data.header);
+    session._session.SetParameters(data.parameters);
+    session._session.SetRedirect(data.redirect);
     session.SetRetryPolicy(data.retryPolicy);
 
     if (!data.proxies.empty())
@@ -223,16 +223,16 @@ Session Session::Factory::CreateSession(const std::string& name, bool trace)
                 {
                     auto user = auth.substr(0, authColPos);
                     auto pass = auth.substr(authColPos + 1);
-                    session.SetProxyAuth(
+                    session._session.SetProxyAuth(
                         cpr::ProxyAuthentication {{protocol, cpr::EncodedAuthentication {user, pass}}});
                 }
             }
 
-            session.SetProxies({{protocol, proxy}});
+            session._session.SetProxies({{protocol, proxy}});
         }
     }
 
-    CURL* curl = session.GetCurlHolder()->handle;
+    CURL* curl = session._session.GetCurlHolder()->handle;
     curl_easy_setopt(curl, CURLOPT_SHARE, data.share);
 
     if (trace)
@@ -308,7 +308,7 @@ bool Session::Factory::IsProxyReachable(const std::string& url)
 
 CURLcode Session::makeRepeatedRequestEx()
 {
-    CURL*    curl = GetCurlHolder()->handle;
+    CURL*    curl = _session.GetCurlHolder()->handle;
     CURLcode curl_error;
     int      attempt = 0;
 
@@ -371,7 +371,7 @@ static std::time_t HttpDate(const char* v)
 
 std::chrono::milliseconds Session::ParseRetryAfterHeader()
 {
-    CURL* curl = GetCurlHolder()->handle;
+    CURL* curl = _session.GetCurlHolder()->handle;
 
     curl_header* header      = nullptr;
     long long    retry_after = 0;
@@ -425,12 +425,58 @@ void Session::prepare()
 
 cpr::Response Session::makeRequestEx()
 {
-    return Complete(makeRepeatedRequestEx());
+    return _session.Complete(makeRepeatedRequestEx());
 }
 
 cpr::Response Session::makeDownloadRequestEx()
 {
-    return CompleteDownload(makeRepeatedRequestEx());
+    return _session.CompleteDownload(makeRepeatedRequestEx());
+}
+
+
+void Session::PrepareDelete()
+{
+    _session.PrepareDelete();
+}
+
+void Session::PrepareGet()
+{
+    _session.PrepareGet();
+}
+
+void Session::PrepareHead()
+{
+    _session.PrepareHead();
+}
+
+void Session::PrepareOptions()
+{
+    _session.PrepareOptions();
+}
+
+void Session::PreparePatch()
+{
+    _session.PreparePatch();
+}
+
+void Session::PreparePost()
+{
+    _session.PreparePost();
+}
+
+void Session::PreparePut()
+{
+    _session.PreparePut();
+}
+
+void Session::PrepareDownload(std::ofstream& file)
+{
+    _session.PrepareDownload(file);
+}
+
+void Session::PrepareDownload(const cpr::WriteCallback& write)
+{
+    _session.PrepareDownload(write);
 }
 
 }

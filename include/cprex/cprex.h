@@ -56,7 +56,7 @@ public:
     Path& operator=(const Path& other)   = default;
 };
 
-class Session : public cpr::Session
+class Session
 {
 public:
     // Do more resilience like in Polly: https://github.com/App-vNext/Polly
@@ -111,6 +111,16 @@ public:
     };
 
 private:
+    cpr::Session _session;
+    cpr::Url     _url;
+    Path         _path;
+
+    std::function<void(Session*)>                            _prepper;
+    std::function<void(Session*, std::ofstream&)>            _prepperDlStream;
+    std::function<void(Session*, const cpr::WriteCallback&)> _prepperDlCallback;
+
+    std::variant<std::ofstream*, const cpr::WriteCallback*> _prepperArgs;
+
     struct DebugData
     {
         DebugData()
@@ -124,20 +134,11 @@ private:
     static int  curl_trace(CURL* handle, curl_infotype type, char* data, size_t size, void* userp);
     static void dump(const char* text, FILE* stream, unsigned char* ptr, size_t size, bool nohex);
 
-    // overwrite cpr::Session::SetUrl() to store the absolute URL
     void SetUrl(const cpr::Url& url)
     {
         _url = url;
-        cpr::Session::SetUrl(url);
+        _session.SetUrl(url);
     }
-    cpr::Url _url;
-    Path     _path;
-
-    std::function<void(Session*)>                            _prepper;
-    std::function<void(Session*, std::ofstream&)>            _prepperDlStream;
-    std::function<void(Session*, const cpr::WriteCallback&)> _prepperDlCallback;
-
-    std::variant<std::ofstream*, const cpr::WriteCallback*> _prepperArgs;
 
     void          prepare();
     CURLcode      makeRepeatedRequestEx();
@@ -152,7 +153,7 @@ private:
     void SetPath(const Path& path)
     {
         _path = path;
-        cpr::Session::SetUrl(AppendUrls(std::string(_url), std::string(_path)));
+        _session.SetUrl(AppendUrls(std::string(_url), std::string(_path)));
     }
 
     template <bool processed_header, typename CurrentType>
@@ -162,7 +163,7 @@ private:
             "You shall not pass cpr::Url(\"...\"), instead use Path(\"relative/path\"). "
             "Absolute URLs should be passed via Session::Factory::PrepareSession()");
 
-        SetOption(std::forward<CurrentType>(current_option));
+        _session.SetOption(std::forward<CurrentType>(current_option));
     }
 
     template <>
@@ -175,7 +176,7 @@ private:
     void set_option_internal<true, cpr::Header>(cpr::Header&& current_option)
     {
         // Header option was already provided -> Update previous header
-        UpdateHeader(std::forward<cpr::Header>(current_option));
+        _session.UpdateHeader(std::forward<cpr::Header>(current_option));
     }
 
     template <bool processed_header, typename CurrentType, typename... Ts>
@@ -207,13 +208,22 @@ public:
 #ifdef _WIN32
 #    pragma region HTTP verb methods
 #endif
+    void PrepareDelete();
+    void PrepareGet();
+    void PrepareHead();
+    void PrepareOptions();
+    void PreparePatch();
+    void PreparePost();
+    void PreparePut();
+    void PrepareDownload(const cpr::WriteCallback& write);
+    void PrepareDownload(std::ofstream& file);
 
     // Get methods
     template <typename... Ts>
     cpr::Response Get(Ts&&... ts)
     {
         set_option(std::forward<Ts>(ts)...);
-        _prepper = &cpr::Session::PrepareGet;
+        _prepper = &Session::PrepareGet;
         return makeRequestEx();
     }
 
@@ -238,7 +248,7 @@ public:
     cpr::Response Post(Ts&&... ts)
     {
         set_option(std::forward<Ts>(ts)...);
-        _prepper = &cpr::Session::PreparePost;
+        _prepper = &Session::PreparePost;
         return makeRequestEx();
     }
 
@@ -263,7 +273,7 @@ public:
     cpr::Response Put(Ts&&... ts)
     {
         set_option(std::forward<Ts>(ts)...);
-        _prepper = &cpr::Session::PreparePut;
+        _prepper = &Session::PreparePut;
         return makeRequestEx();
     }
 
@@ -288,7 +298,7 @@ public:
     cpr::Response Head(Ts&&... ts)
     {
         set_option(std::forward<Ts>(ts)...);
-        _prepper = &cpr::Session::PrepareHead;
+        _prepper = &Session::PrepareHead;
         return makeRequestEx();
     }
 
@@ -313,7 +323,7 @@ public:
     cpr::Response Delete(Ts&&... ts)
     {
         set_option(std::forward<Ts>(ts)...);
-        _prepper = &cpr::Session::PrepareDelete;
+        _prepper = &Session::PrepareDelete;
         return makeRequestEx();
     }
 
@@ -338,7 +348,7 @@ public:
     cpr::Response Options(Ts&&... ts)
     {
         set_option(std::forward<Ts>(ts)...);
-        _prepper = &cpr::Session::PrepareOptions;
+        _prepper = &Session::PrepareOptions;
         return makeRequestEx();
     }
 
@@ -363,7 +373,7 @@ public:
     cpr::Response Patch(Ts&&... ts)
     {
         set_option(std::forward<Ts>(ts)...);
-        _prepper = &cpr::Session::PreparePatch;
+        _prepper = &Session::PreparePatch;
         return makeRequestEx();
     }
 
@@ -389,7 +399,7 @@ public:
     {
         set_option(std::forward<Ts>(ts)...);
         _prepper         = nullptr;
-        _prepperDlStream = static_cast<void (cpr::Session::*)(std::ofstream&)>(&cpr::Session::PrepareDownload);
+        _prepperDlStream = static_cast<void (cpr::Session::*)(std::ofstream&)>(&Session::PrepareDownload);
         _prepperArgs     = &file;
         return makeDownloadRequestEx();
     }
@@ -412,10 +422,9 @@ public:
     cpr::Response Download(const cpr::WriteCallback& write, Ts&&... ts)
     {
         set_option(std::forward<Ts>(ts)...);
-        _prepper = nullptr;
-        _prepperDlCallback =
-            static_cast<void (cpr::Session::*)(const cpr::WriteCallback&)>(&cpr::Session::PrepareDownload);
-        _prepperArgs = &write;
+        _prepper           = nullptr;
+        _prepperDlCallback = static_cast<void (cpr::Session::*)(const cpr::WriteCallback&)>(&Session::PrepareDownload);
+        _prepperArgs       = &write;
         return makeDownloadRequestEx();
     }
 #ifdef _WIN32
