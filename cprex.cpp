@@ -450,6 +450,9 @@ Session Factory::CreateSession(const std::string& name, bool trace)
     CURL* curl = session._session.GetCurlHolder()->handle;
     curl_easy_setopt(curl, CURLOPT_SHARE, data.share);
 
+    // Experiment with other DNS server
+    curl_easy_setopt(curl, CURLOPT_DNS_SERVERS, "1.1.1.1");
+
     if (trace)
     {
         session.EnableTrace();
@@ -513,6 +516,13 @@ void Factory::PrepareSession(const std::string& name, const std::string& baseUrl
 bool Factory::IsProxyReachable(const std::string& url)
 {
     auto r = cpr::Head(cpr::Url(url), cpr::Timeout(1s));
+    // Retry for more resilience.
+    if (!r.status_code)
+    {
+        std::this_thread::sleep_for(100ms);
+        r = cpr::Head(cpr::Url(url), cpr::Timeout(1s));
+    }
+
     // if there's any status_code it means the server somehow replied, most probably with 400 Bad Request, as HEAD may
     // not be supported. Usually when a server isn't reachable we get some r.error
     return r.status_code != 0;
