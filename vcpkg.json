@@ -1,6 +1,27 @@
 {
   "dependencies": [
-    "cpr",
-    "libproxy"
+    {
+      "name": "cpr",
+      "default-features": false,
+      "features": [
+        "ssl"
+      ]
+    },
+    {
+      "name": "curl",
+      "default-features": false,
+      "features": [
+        "brotli",
+        "c-ares",
+        "http2",
+        "idn",
+        "ssl",
+        "zstd"
+      ]
+    },
+    {
+      "name": "libproxy",
+      "default-features": false
+    }
   ]
 }
